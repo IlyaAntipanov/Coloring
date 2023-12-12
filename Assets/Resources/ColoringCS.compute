@@ -1,0 +1,114 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSDraw
+#pragma kernel CSClear
+#pragma kernel CSDrawPrew
+
+struct Cell
+{
+    int Region;
+    float Percent;
+};
+
+RWTexture2D<float4> Result;
+RWTexture2D<float4> ResultPrew;
+RWTexture2D<float4> Mask;
+RWTexture2D<float4> TextureDraw;
+
+RWStructuredBuffer<Cell> Cells;
+
+float Width;
+float Height;
+float4 LineColor;
+float4 ActiveColor;
+int RegionActive;
+float2 MousePosition;
+float2 MousePositionPrev;
+float2 MaskSize;
+float2 TextureSize;
+int SizeBrush;
+bool IsDrawTexture;
+
+[numthreads(8,8,1)]
+void CSDraw (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < SizeBrush && id.y < SizeBrush)
+    {
+        int2 positionActual = id.xy + MousePosition - SizeBrush / 2;
+        float2 positionMark = (id.xy / (float) SizeBrush) * MaskSize;
+        float4 colorMask = Mask[positionMark];
+        int indexArray = positionActual.y * Width + positionActual.x;
+        Cell cell = Cells[indexArray];
+        if (cell.Region == RegionActive && colorMask.a > 0.9)
+        {
+            if (IsDrawTexture)
+            {
+                float2 positionColor = positionActual.xy % TextureSize;
+                float4 color = TextureDraw[positionColor];
+                Result[positionActual.xy] = lerp(color, LineColor, cell.Percent);
+                ResultPrew[positionActual.xy] = Result[positionActual.xy];
+            }
+            else
+            {
+                Result[positionActual.xy] = lerp(ActiveColor, LineColor, cell.Percent);
+                ResultPrew[positionActual.xy] = Result[positionActual.xy];
+            }
+        }
+    }
+}
+
+[numthreads(8, 8, 1)]
+void CSDrawPrew(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < SizeBrush && id.y < SizeBrush)
+    {
+        int2 minPosition = MousePosition - SizeBrush / 2;
+        int2 positionActual = id.xy + minPosition;
+        float2 positionMark = (id.xy / (float) SizeBrush) * MaskSize;
+        float4 colorMask = Mask[positionMark];
+        int indexArray = positionActual.y * Width + positionActual.x;
+        Cell cell = Cells[indexArray];
+        if (cell.Region == RegionActive && colorMask.a > 0.9)
+        {
+            if (IsDrawTexture)
+            {
+                float2 positionColor = positionActual.xy % TextureSize;
+                float4 color = TextureDraw[positionColor];
+                Result[positionActual.xy] = lerp(color, LineColor, cell.Percent);
+            }
+            else
+            {
+                Result[positionActual.xy] = lerp(ActiveColor, LineColor, cell.Percent);
+            }
+        }
+        else
+        {
+            Result[positionActual.xy] = ResultPrew[positionActual.xy];
+        }
+        int2 positionPrev = id.xy + MousePositionPrev - SizeBrush / 2;
+        
+        if (minPosition.x >= positionPrev.x || minPosition.y>=positionPrev.y
+            || minPosition.x + SizeBrush <= positionPrev.x || minPosition.y + SizeBrush <= positionPrev.y)
+        {
+            Result[positionPrev.xy] = ResultPrew[positionPrev.xy];
+        }
+
+    }
+}
+
+[numthreads(8, 8, 1)]
+void CSClear(uint3 id : SV_DispatchThreadID)
+{
+    int indexArray = id.y * Width + id.x;
+    Cell cell = Cells[indexArray];
+    if (cell.Region == 0)
+    {
+        Result[id.xy] = LineColor;
+        ResultPrew[id.xy] = LineColor;
+
+    }
+    else
+    {
+        Result[id.xy] = lerp(float4(1, 1, 1, 1), LineColor, cell.Percent);
+        ResultPrew[id.xy] = Result[id.xy];
+    }
+}
